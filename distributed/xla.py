@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
-
+import torch_xla.core.xla_model as xm
 
 class MLP(nn.Module):
     def __init__(self):
@@ -19,16 +19,20 @@ class MLP(nn.Module):
         return x
 
 
-def train(dataloader, model, loss_fn, optimizer):
+def train(dataloader, model, loss_fn, optimizer, device):
     size = len(dataloader.dataset)
     print(size)
     for batch, (X, y) in enumerate(dataloader):
+        X = X.to(device)
         y_hat = model(X)
+        y = y.to(device)
         loss = loss_fn(y_hat, y)
 
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
+
+        xm.mark_step()
 
         if batch % 100 == 0:
             loss, current = loss.item(), batch * len(X)
@@ -38,21 +42,21 @@ def train(dataloader, model, loss_fn, optimizer):
 def get_dataloader(length=64000, input_dim=512, output_dim=10, batch_size=64):
     X = torch.randn(length, input_dim)
     y = torch.randint(output_dim, (length, ))
-    # y = nn.functional.one_hot(y_ind, output_dim)
     dataset = TensorDataset(X, y)
     return DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
 
 def main():
+    device = xm.xla_device()
     lr = 1e-3
     n_epochs = 10
     dataloader = get_dataloader()
-    model = MLP()
+    model = MLP().to(device)
     loss_fn = nn.CrossEntropyLoss()
     optimizer = torch.optim.SGD(model.parameters(), lr=lr)
     for i in range(n_epochs):
         print(f"-----EPOCH: {i}------")
-        train(dataloader=dataloader, model=model, loss_fn=loss_fn, optimizer=optimizer)
+        train(dataloader=dataloader, model=model, loss_fn=loss_fn, optimizer=optimizer, device=device)
         print("\n")
     print("Fin.")
 
